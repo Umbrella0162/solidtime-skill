@@ -14,12 +14,12 @@ TOKEN = os.environ.get("SOLIDTIME_API_TOKEN", "")
 
 # ── output format ────────────────────────────────────────────────────────────
 
-FORMAT = "pretty"  # pretty | json | csv | table
+FORMAT = "pretty"  # pretty | json
 
 def _set_format(fmt):
     global FORMAT
-    if fmt not in ("pretty", "json", "csv", "table"):
-        print(f"Unknown format: {fmt} (use: pretty, json, csv, table)", file=sys.stderr)
+    if fmt not in ("pretty", "json"):
+        print(f"Unknown format: {fmt} (use: pretty, json)", file=sys.stderr)
         sys.exit(3)
     FORMAT = fmt
 
@@ -53,10 +53,10 @@ def _fmt_duration(seconds):
         return f"{m2}m {s}s"
     return f"{s}s"
 
-def _fmt_duration_csv(seconds):
-    """Duration as decimal hours for CSV/JSON structured output."""
+def _fmt_duration_json(seconds):
+    """Duration as decimal hours for JSON structured output."""
     if seconds is None:
-        return ""
+        return None
     return round(seconds / 3600, 2)
 
 def _fmt_rate(cents):
@@ -64,9 +64,9 @@ def _fmt_rate(cents):
         return "—"
     return f"${cents/100:.2f}/hr"
 
-def _fmt_rate_csv(cents):
+def _fmt_rate_json(cents):
     if cents is None:
-        return ""
+        return None
     return cents / 100
 
 def _fmt_ts(ts):
@@ -78,22 +78,22 @@ def _fmt_ts(ts):
     except Exception:
         return ts
 
-def _fmt_ts_csv(ts):
+def _fmt_ts_json(ts):
     if not ts:
-        return ""
+        return None
     try:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
-        return ts or ""
+        return ts
 
-def _out(items, headers, formatters_pretty, formatters_struct):
+def _out(items, headers, formatters_pretty, formatters_json):
     """Unified output dispatcher.
 
-    items:        list of dicts (one per row)
-    headers:      list of column names (for csv/table)
-    formatters_pretty:   dict {header: func(value)} for pretty print
-    formatters_struct:   dict {header: func(value)} for csv/json structured data
+    items:          list of dicts (one per row)
+    headers:        list of column names
+    formatters_pretty:  dict {header: func(value)} for pretty print
+    formatters_json:    dict {header: func(value)} for json structured data
     """
     if FORMAT == "json":
         rows = []
@@ -101,49 +101,20 @@ def _out(items, headers, formatters_pretty, formatters_struct):
             row = {}
             for h in headers:
                 val = item.get(h)
-                row[h] = formatters_struct.get(h, lambda v: v)(val)
+                row[h] = formatters_json.get(h, lambda v: v)(val)
             rows.append(row)
         print(json.dumps(rows, indent=2, ensure_ascii=False))
         return
 
-    if FORMAT == "csv":
-        import csv, io
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(headers)
-        for item in items:
-            row = []
-            for h in headers:
-                val = item.get(h)
-                row.append(formatters_struct.get(h, lambda v: v if v is not None else "")(val))
-            writer.writerow(row)
-        print(buf.getvalue(), end="")
-        return
-
-    if FORMAT == "table":
-        # Build markdown table
-        col_widths = [len(h) for h in headers]
-        rows = []
-        for item in items:
-            row = []
-            for i, h in enumerate(headers):
-                val = item.get(h)
-                cell = str(formatters_pretty.get(h, lambda v: v if v is not None else "—")(val))
-                row.append(cell)
-                col_widths[i] = max(col_widths[i], len(cell))
-            rows.append(row)
-        fmt = "|" + "|".join(f" {{:<{w}}} " for w in col_widths) + "|"
-        sep = "|" + "|".join(f" {'—' * w} " for w in col_widths) + "|"
-        print(fmt.format(*headers))
-        print(sep)
-        for row in rows:
-            print(fmt.format(*row))
-        return
-
-    # FORMAT == "pretty" (default): use custom per-command formatting
-    # Fall back: caller handles pretty output themselves
-    # If we reach here, the command didn't handle pretty itself, use table as fallback
-    _out(items, headers, formatters_pretty, formatters_struct)
+    # FORMAT == "pretty" (default): caller handles pretty output themselves
+    # If we reach here, the command didn't handle pretty itself, emit simple aligned output
+    for item in items:
+        parts = []
+        for h in headers:
+            val = item.get(h)
+            cell = formatters_pretty.get(h, lambda v: v if v is not None else "—")(val)
+            parts.append(f"{h}={cell}")
+        print("  " + "  ".join(str(p) for p in parts))
 
 # ── API helper ────────────────────────────────────────────────────────────────
 
@@ -204,7 +175,7 @@ def _print_json(data):
 def cmd_me(args):
     r = _api("/v1/users/me")
     d = r.get("data", r)
-    if FORMAT != "pretty":
+    if FORMAT == "json":
         _out([d], ["id", "name", "email", "timezone", "week_start"],
              {}, {k: lambda v: v or "" for k in ["id","name","email","timezone","week_start"]})
         return
@@ -218,12 +189,12 @@ def cmd_memberships(args):
     for m in r.get("data", []):
         org = m.get("organization", {})
         items.append({"org_id": org.get("id",""), "org_name": org.get("name",""), "role": m.get("role","")})
-    _out(items, ["org_id", "org_name", "role"],
-         {}, {k: lambda v: v or "" for k in ["org_id","org_name","role"]})
-    if FORMAT == "pretty":
-        # Override with aligned output
-        for i in items:
-            print(f"  {i['org_id']}  {i['org_name']}  role={i['role']}")
+    if FORMAT == "json":
+        _out(items, ["org_id", "org_name", "role"],
+             {}, {k: lambda v: v or "" for k in ["org_id","org_name","role"]})
+        return
+    for i in items:
+        print(f"  {i['org_id']}  {i['org_name']}  role={i['role']}")
 
 def cmd_active_timer(args):
     r = _api("/v1/users/me/time-entries/active")
@@ -231,18 +202,16 @@ def cmd_active_timer(args):
     if empty:
         if FORMAT == "json":
             print("[]")
-        elif FORMAT in ("csv", "table"):
-            print("No active timer" if FORMAT == "table" else "")
         else:
             print("No active timer")
         return
     d = r.get("data", r) if isinstance(r, dict) else r
     if isinstance(d, list):
         d = d[0] if d else {}
-    if FORMAT != "pretty":
+    if FORMAT == "json":
         _out([d], ["id", "start", "end", "duration", "description", "project_id", "task_id", "billable"],
              {"duration": _fmt_duration, "start": _fmt_ts, "end": _fmt_ts},
-             {"duration": _fmt_duration_csv, "start": _fmt_ts_csv, "end": _fmt_ts_csv})
+             {"duration": _fmt_duration_json, "start": _fmt_ts_json, "end": _fmt_ts_json})
         return
     print(f"Active: {_fmt_ts(d.get('start'))}  duration={_fmt_duration(d.get('duration'))}")
     desc = d.get("description") or ""
@@ -258,13 +227,14 @@ def cmd_tokens(args):
     items = []
     for t in r.get("data", []):
         items.append({"id": t.get("id",""), "name": t.get("name",""), "revoked": t.get("revoked", False), "expires_at": t.get("expires_at") or "never"})
-    _out(items, ["id", "name", "revoked", "expires_at"],
-         {"revoked": lambda v: "REVOKED" if v else "active"},
-         {"revoked": lambda v: str(v), "expires_at": lambda v: v or "never"})
-    if FORMAT == "pretty":
-        for i in items:
-            rev = "REVOKED" if i["revoked"] else "active"
-            print(f"  {i['id'][:8]}…  {i['name']}  {rev}  expires={i['expires_at']}")
+    if FORMAT == "json":
+        _out(items, ["id", "name", "revoked", "expires_at"],
+             {"revoked": lambda v: "REVOKED" if v else "active"},
+             {"revoked": lambda v: str(v), "expires_at": lambda v: v or "never"})
+        return
+    for i in items:
+        rev = "REVOKED" if i["revoked"] else "active"
+        print(f"  {i['id'][:8]}…  {i['name']}  {rev}  expires={i['expires_at']}")
 
 # ── org ───────────────────────────────────────────────────────────────────────
 
@@ -272,10 +242,10 @@ def cmd_org(args):
     org_id = args[0]
     r = _api(f"/v1/organizations/{org_id}")
     d = r.get("data", r)
-    if FORMAT != "pretty":
+    if FORMAT == "json":
         _out([d], ["id", "name", "currency", "billable_rate", "is_personal", "prevent_overlapping_time_entries"],
              {"billable_rate": _fmt_rate},
-             {"billable_rate": _fmt_rate_csv})
+             {"billable_rate": _fmt_rate_json})
         return
     print(f"Organization: {d.get('name')}")
     print(f"  Currency: {d.get('currency_symbol','')} {d.get('currency','')}")
@@ -340,7 +310,7 @@ def _entries_out(r):
          ["id", "start", "end", "duration", "description", "project_id", "task_id", "billable"],
          {"duration": _fmt_duration, "start": _fmt_ts, "end": _fmt_ts,
           "billable": lambda v: "yes" if v else "no"},
-         {"duration": _fmt_duration_csv, "start": _fmt_ts_csv, "end": _fmt_ts_csv,
+         {"duration": _fmt_duration_json, "start": _fmt_ts_json, "end": _fmt_ts_json,
           "billable": lambda v: str(v), "description": lambda v: v or "",
           "project_id": lambda v: v or "", "task_id": lambda v: v or ""})
 
@@ -372,10 +342,10 @@ def cmd_entry(args):
     org_id, entry_id = args[0], args[1]
     r = _api(_org_path(org_id, f"/time-entries/{entry_id}"))
     d = r.get("data", r) if isinstance(r, dict) else r
-    if FORMAT != "pretty":
+    if FORMAT == "json":
         _out([d] if isinstance(d, dict) else d, ["id","start","end","duration","description","project_id","task_id","billable","tags"],
              {"duration": _fmt_duration, "start": _fmt_ts, "end": _fmt_ts},
-             {"duration": _fmt_duration_csv, "start": _fmt_ts_csv, "end": _fmt_ts_csv})
+             {"duration": _fmt_duration_json, "start": _fmt_ts_json, "end": _fmt_ts_json})
         return
     _print_json(r)
 
@@ -407,8 +377,8 @@ def cmd_projects(args):
          {"billable_rate": _fmt_rate, "spent_time": _fmt_duration, "estimated_time": _fmt_duration,
           "is_billable": lambda v: "yes" if v else "no", "is_archived": lambda v: "yes" if v else "no",
           "is_public": lambda v: "yes" if v else "no"},
-         {"billable_rate": _fmt_rate_csv, "spent_time": _fmt_duration_csv,
-          "estimated_time": _fmt_duration_csv, "is_billable": lambda v: str(v),
+         {"billable_rate": _fmt_rate_json, "spent_time": _fmt_duration_json,
+          "estimated_time": _fmt_duration_json, "is_billable": lambda v: str(v),
           "is_archived": lambda v: str(v), "is_public": lambda v: str(v)})
 
 def cmd_project(args):
@@ -439,7 +409,7 @@ def cmd_tasks(args):
         return
     _out(items, ["id", "name", "is_done", "project_id", "estimated_time", "spent_time"],
          {"is_done": lambda v: "done" if v else "open", "estimated_time": _fmt_duration, "spent_time": _fmt_duration},
-         {"is_done": lambda v: str(v), "estimated_time": _fmt_duration_csv, "spent_time": _fmt_duration_csv})
+         {"is_done": lambda v: str(v), "estimated_time": _fmt_duration_json, "spent_time": _fmt_duration_json})
 
 def cmd_task(args):
     org_id, tid = args[0], args[1]
@@ -486,7 +456,7 @@ def cmd_members(args):
         return
     _out(items, ["id", "user_id", "name", "email", "role", "is_placeholder", "billable_rate"],
          {"billable_rate": _fmt_rate, "is_placeholder": lambda v: "yes" if v else "no"},
-         {"billable_rate": _fmt_rate_csv, "is_placeholder": lambda v: str(v)})
+         {"billable_rate": _fmt_rate_json, "is_placeholder": lambda v: str(v)})
 
 def cmd_project_members(args):
     org_id, pid = args[0], args[1]
@@ -498,7 +468,7 @@ def cmd_project_members(args):
             print(f"  {m.get('id','?')[:8]}…  member={m.get('member_id','?')[:8]}…  rate={rate}")
         return
     _out(items, ["id", "member_id", "project_id", "billable_rate"],
-         {"billable_rate": _fmt_rate}, {"billable_rate": _fmt_rate_csv})
+         {"billable_rate": _fmt_rate}, {"billable_rate": _fmt_rate_json})
 
 def cmd_invitations(args):
     org_id = args[0]
@@ -598,9 +568,9 @@ def main():
         sys.exit(2)
 
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
-        print(f"Usage: {sys.argv[0]} <command> [args...] [-f json|csv|table|pretty]")
+        print(f"Usage: {sys.argv[0]} <command> [args...] [-f json|pretty]")
         print(f"\nCommands: {', '.join(sorted(COMMANDS))}")
-        print(f"\nFormats:  pretty (default), json, csv, table")
+        print(f"\nFormats:  pretty (default), json")
         sys.exit(0)
 
     cmd_name = sys.argv[1]

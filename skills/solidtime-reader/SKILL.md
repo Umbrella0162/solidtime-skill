@@ -39,8 +39,6 @@ All commands support the `--format` / `-f` flag to control output format:
 |--------|------|-------------|
 | **pretty** | `-f pretty` | Human-readable, aligned (default) |
 | **json** | `-f json` | JSON array of objects, machine-parsable |
-| **csv** | `-f csv` | CSV with header row, spreadsheet-ready |
-| **table** | `-f table` | Markdown table, paste into docs |
 
 ```bash
 # Default: pretty
@@ -48,20 +46,14 @@ python3 scripts/solidtime_reader.py entries-week ORG_ID
 
 # For scripts / piping
 python3 scripts/solidtime_reader.py entries-week ORG_ID -f json
-
-# For spreadsheets
-python3 scripts/solidtime_reader.py entries-week ORG_ID -f csv > hours.csv
-
-# For documentation
-python3 scripts/solidtime_reader.py projects ORG_ID -f table
 ```
 
 ### Structured data notes
 
-- **Durations**: pretty = `3h 24m`, json/csv = `3.4` (decimal hours)
-- **Billable rates**: pretty = `$50.00/hr`, json/csv = `50.0` (decimal)
-- **Timestamps**: pretty = `2026-05-29 09:00 UTC`, json/csv = `2026-05-29T09:00:00Z`
-- **Null/empty**: pretty = `—`, json = `null`, csv = empty string
+- **Durations**: pretty = `3h 24m`, json = `3.4` (decimal hours)
+- **Billable rates**: pretty = `$50.00/hr`, json = `50.0` (decimal)
+- **Timestamps**: pretty = `2026-05-29 09:00 UTC`, json = `2026-05-29T09:00:00Z`
+- **Null/empty**: pretty = `—`, json = `null`
 
 ## Commands Reference
 
@@ -153,11 +145,8 @@ python3 scripts/solidtime_reader.py active-timer
 # This week's hours, JSON format for processing
 python3 scripts/solidtime_reader.py entries-week ORG_ID -f json
 
-# Export month's entries to CSV
-python3 scripts/solidtime_reader.py entries ORG_ID --start 2026-05-01 --end 2026-05-31 -f csv > may.csv
-
-# Project summary as markdown table
-python3 scripts/solidtime_reader.py projects ORG_ID -f table
+# Month's entries as JSON
+python3 scripts/solidtime_reader.py entries ORG_ID --start 2026-05-01 --end 2026-05-31 -f json
 
 # Aggregate by project
 python3 scripts/solidtime_reader.py aggregate ORG_ID --group project
@@ -171,9 +160,9 @@ python3 scripts/solidtime_reader.py tasks ORG_ID --project PROJECT_ID
 
 ## Key Conventions
 
-- **Billable Rates**: Stored in **cents per hour**. Script displays them as currency (e.g. 5000 → $50.00/hr in pretty, `50.0` in json/csv).
-- **Durations**: Returned in **seconds**. Pretty = `Xh Ym`, json/csv = decimal hours.
-- **Timestamps**: ISO 8601 UTC. Pretty = `YYYY-MM-DD HH:MM UTC`, json/csv = ISO 8601.
+- **Billable Rates**: Stored in **cents per hour**. Script displays them as currency (e.g. 5000 → $50.00/hr in pretty, `50.0` in json).
+- **Durations**: Returned in **seconds**. Pretty = `Xh Ym`, json = decimal hours.
+- **Timestamps**: ISO 8601 UTC. Pretty = `YYYY-MM-DD HH:MM UTC`, json = ISO 8601.
 - **Pagination**: The script fetches the first page. Use `--limit` for more results.
 
 ## Error Handling
